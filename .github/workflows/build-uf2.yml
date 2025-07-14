@@ -1,0 +1,389 @@
+name: Build UF2 Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+      
+    - name: Setup Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.x'
+        
+    - name: Install dependencies
+      run: pip install requests
+
+    - name: Create release bundles
+      run: |
+        python3 << 'EOF'
+        import os
+        import requests
+        import zipfile
+        import shutil
+        from datetime import datetime
+        
+        # Configuration
+        CP_VERSION = "9.2.1"
+        VERSION = os.environ.get('GITHUB_REF_NAME', '') or f"v{datetime.now().strftime('%Y%m%d')}"
+        print(f"Building release {VERSION}")
+        
+        # Supported boards
+        BOARDS = {
+            "raspberry_pi_pico": f"https://downloads.circuitpython.org/bin/raspberry_pi_pico/en_US/adafruit-circuitpython-raspberry_pi_pico-en_US-{CP_VERSION}.uf2",
+            "raspberry_pi_pico_w": f"https://downloads.circuitpython.org/bin/raspberry_pi_pico_w/en_US/adafruit-circuitpython-raspberry_pi_pico_w-en_US-{CP_VERSION}.uf2",
+            "raspberry_pi_pico2": f"https://downloads.circuitpython.org/bin/raspberry_pi_pico2/en_US/adafruit-circuitpython-raspberry_pi_pico2-en_US-{CP_VERSION}.uf2",
+            "raspberry_pi_pico2_w": f"https://downloads.circuitpython.org/bin/raspberry_pi_pico2_w/en_US/adafruit-circuitpython-raspberry_pi_pico2_w-en_US-{CP_VERSION}.uf2"
+        }
+        
+        # Create directories
+        os.makedirs("dist", exist_ok=True)
+        os.makedirs("lib", exist_ok=True)
+        
+        # Download CircuitPython UF2 files
+        print("Downloading CircuitPython UF2 files...")
+        uf2_files = {}
+        for board, url in BOARDS.items():
+            filename = f"adafruit-circuitpython-{board}-en_US-{CP_VERSION}.uf2"
+            print(f"  Downloading {filename}...")
+            try:
+                response = requests.get(url, timeout=60)
+                response.raise_for_status()
+                with open(f"dist/{filename}", "wb") as f:
+                    f.write(response.content)
+                uf2_files[board] = filename
+                print(f"  ✓ Downloaded {filename} ({len(response.content)} bytes)")
+            except Exception as e:
+                print(f"  ✗ Failed to download {filename}: {e}")
+                continue
+        
+        # Download CircuitPython libraries
+        print("Downloading CircuitPython libraries...")
+        try:
+            # Get the latest bundle release
+            print("  Getting latest bundle release...")
+            releases_response = requests.get("https://api.github.com/repos/adafruit/Adafruit_CircuitPython_Bundle/releases/latest", timeout=30)
+            releases_response.raise_for_status()
+            latest_release = releases_response.json()
+            
+            # Find the 9.x-mpy bundle asset
+            bundle_url = None
+            for asset in latest_release.get('assets', []):
+                if 'adafruit-circuitpython-bundle-9.x-mpy' in asset['name'] and asset['name'].endswith('.zip'):
+                    bundle_url = asset['browser_download_url']
+                    break
+            
+            if not bundle_url:
+                # Fallback to a known working URL
+                bundle_url = "https://github.com/adafruit/Adafruit_CircuitPython_Bundle/releases/latest/download/adafruit-circuitpython-bundle-9.x-mpy-20241217.zip"
+                print("  Using fallback bundle URL")
+            
+            print(f"  Downloading bundle from: {bundle_url}")
+            response = requests.get(bundle_url, timeout=120)
+            response.raise_for_status()
+            
+            with open("bundle.zip", "wb") as f:
+                f.write(response.content)
+            
+            # Extract bundle
+            with zipfile.ZipFile("bundle.zip", "r") as zip_ref:
+                zip_ref.extractall("bundle_temp")
+            
+            # Find bundle directory
+            bundle_dirs = [d for d in os.listdir("bundle_temp") if d.startswith("adafruit-circuitpython-bundle")]
+            if bundle_dirs:
+                bundle_dir = os.path.join("bundle_temp", bundle_dirs[0], "lib")
+                
+                # Required libraries
+                required_libs = [
+                    "adafruit_hid",
+                    "adafruit_debouncer.mpy", 
+                    "adafruit_ticks.mpy",
+                    "asyncio",
+                    "adafruit_wsgi"
+                ]
+                
+                # Copy libraries
+                for lib in required_libs:
+                    src = os.path.join(bundle_dir, lib)
+                    dst = os.path.join("lib", lib)
+                    if os.path.exists(src):
+                        if os.path.isdir(src):
+                            shutil.copytree(src, dst)
+                        else:
+                            shutil.copy2(src, dst)
+                        print(f"  ✓ Copied {lib}")
+                    else:
+                        print(f"  ✗ Missing {lib}")
+            
+            # Cleanup
+            os.remove("bundle.zip")
+            shutil.rmtree("bundle_temp")
+            print("  ✓ Libraries downloaded and extracted")
+            
+        except Exception as e:
+            print(f"  ✗ Failed to download libraries: {e}")
+            print("  Continuing without libraries - bundles may be incomplete")
+        
+        # Validate we have minimum required files
+        print("Validating required files...")
+        required_files = ["code.py", "duckyinpython.py", "secrets.py"]
+        missing_files = []
+        
+        for file in required_files:
+            if not os.path.exists(file):
+                missing_files.append(file)
+        
+        if missing_files:
+            print(f"  ✗ Missing required files: {missing_files}")
+            print("  Build may fail or produce incomplete bundles")
+        else:
+            print("  ✓ All required files found")
+        
+        # Check if we have any UF2 files
+        if not uf2_files:
+            print("  ✗ No UF2 files were downloaded successfully")
+            print("  Build will continue but bundles will be incomplete")
+        else:
+            print(f"  ✓ Successfully downloaded {len(uf2_files)} UF2 files")
+        
+        # Create installation instructions template
+        install_lines = [
+            "Pico-Ducky Installation Instructions",
+            "",
+            "1. Connect your Raspberry Pi Pico while holding the BOOTSEL button",
+            "2. Device appears as USB drive RPI-RP2",
+            "3. Copy the .uf2 file to RPI-RP2 drive",
+            "4. Device reboots and appears as CIRCUITPY",
+            "5. Copy all .py files to CIRCUITPY root directory",
+            "6. Copy lib folder to CIRCUITPY root directory", 
+            "7. Edit secrets.py to configure WiFi settings",
+            "8. Safely eject the device and it will start running",
+            "",
+            "For detailed setup instructions, see README.md",
+            "For WiFi configuration help, see WIFI_GUIDE.md",
+            "",
+            "WiFi Configuration:",
+            "- Set wifi_mode = client to connect to home network",
+            "- Set wifi_mode = ap to create hotspot (original behavior)",
+            "- Update home_network credentials for client mode",
+            "- Device will fallback to AP mode if client connection fails"
+        ]
+        
+        install_txt = "\n".join(install_lines)
+        
+        # Create bundles for each board
+        print("Creating release bundles...")
+        created_bundles = []
+        
+        for board in BOARDS.keys():
+            bundle_name = f"pico-ducky-{VERSION}-{board}"
+            bundle_dir = bundle_name
+            
+            print(f"  Creating {bundle_name}...")
+            
+            # Create bundle directory
+            if os.path.exists(bundle_dir):
+                shutil.rmtree(bundle_dir)
+            os.makedirs(bundle_dir)
+            
+            files_copied = 0
+            
+            # Copy Python files
+            for file in os.listdir("."):
+                if file.endswith(".py"):
+                    try:
+                        shutil.copy2(file, bundle_dir)
+                        files_copied += 1
+                    except Exception as e:
+                        print(f"    ✗ Failed to copy {file}: {e}")
+            
+            # Copy lib directory
+            if os.path.exists("lib"):
+                try:
+                    shutil.copytree("lib", os.path.join(bundle_dir, "lib"))
+                    files_copied += 1
+                    print(f"    ✓ Copied lib directory")
+                except Exception as e:
+                    print(f"    ✗ Failed to copy lib directory: {e}")
+            
+            # Copy documentation
+            for file in os.listdir("."):
+                if file.endswith(".md"):
+                    try:
+                        shutil.copy2(file, bundle_dir)
+                        files_copied += 1
+                    except Exception as e:
+                        print(f"    ✗ Failed to copy {file}: {e}")
+            
+            # Copy examples if they exist
+            if os.path.exists("examples"):
+                try:
+                    shutil.copytree("examples", os.path.join(bundle_dir, "examples"))
+                    files_copied += 1
+                    print(f"    ✓ Copied examples directory")
+                except Exception as e:
+                    print(f"    ✗ Failed to copy examples: {e}")
+            
+            # Copy UF2 file if available
+            if board in uf2_files:
+                uf2_src = os.path.join("dist", uf2_files[board])
+                if os.path.exists(uf2_src):
+                    try:
+                        shutil.copy2(uf2_src, bundle_dir)
+                        files_copied += 1
+                        print(f"    ✓ Copied {uf2_files[board]}")
+                    except Exception as e:
+                        print(f"    ✗ Failed to copy UF2 file: {e}")
+                else:
+                    print(f"    ✗ UF2 file not found: {uf2_src}")
+            else:
+                print(f"    ✗ No UF2 file available for {board}")
+            
+            # Create installation instructions
+            try:
+                with open(os.path.join(bundle_dir, "INSTALL.txt"), "w") as f:
+                    f.write(install_txt)
+                files_copied += 1
+            except Exception as e:
+                print(f"    ✗ Failed to create INSTALL.txt: {e}")
+            
+            print(f"    ✓ Copied {files_copied} files/directories")
+            
+            # Create ZIP bundle
+            zip_path = os.path.join("dist", f"{bundle_name}.zip")
+            try:
+                with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zipf:
+                    for root, dirs, files in os.walk(bundle_dir):
+                        for file in files:
+                            file_path = os.path.join(root, file)
+                            arc_path = os.path.relpath(file_path, ".")
+                            zipf.write(file_path, arc_path)
+                
+                # Get zip file size
+                zip_size = os.path.getsize(zip_path)
+                print(f"    ✓ Created {bundle_name}.zip ({zip_size} bytes)")
+                created_bundles.append(f"{bundle_name}.zip")
+                
+            except Exception as e:
+                print(f"    ✗ Failed to create ZIP: {e}")
+            
+            # Cleanup bundle directory
+            try:
+                shutil.rmtree(bundle_dir)
+            except Exception as e:
+                print(f"    ✗ Failed to cleanup {bundle_dir}: {e}")
+        
+        print(f"Build complete! Created {len(created_bundles)} bundles:")
+        for bundle in created_bundles:
+            print(f"  - {bundle}")
+        
+        # Create a summary file
+        with open("dist/build_summary.txt", "w") as f:
+            f.write(f"Pico-Ducky Build Summary\n")
+            f.write(f"Version: {VERSION}\n")
+            f.write(f"CircuitPython Version: {CP_VERSION}\n")
+            f.write(f"Build Date: {datetime.now().isoformat()}\n")
+            f.write(f"Created Bundles: {len(created_bundles)}\n")
+            f.write(f"UF2 Files Downloaded: {len(uf2_files)}\n")
+            f.write(f"\nBundles:\n")
+            for bundle in created_bundles:
+                f.write(f"  - {bundle}\n")
+            f.write(f"\nUF2 Files:\n")
+            for board, filename in uf2_files.items():
+                f.write(f"  - {board}: {filename}\n")
+        EOF
+        
+    - name: List created files
+      run: |
+        echo "Created files in dist directory:"
+        ls -la dist/
+        echo ""
+        echo "File sizes:"
+        du -h dist/*
+        
+    - name: Verify build artifacts
+      run: |
+        # Check if we have any ZIP files
+        if ls dist/*.zip 1> /dev/null 2>&1; then
+          echo "✓ ZIP bundles created successfully"
+          echo "ZIP files:"
+          ls -1 dist/*.zip
+        else
+          echo "✗ No ZIP bundles found"
+          exit 1
+        fi
+        
+        # Check if we have any UF2 files
+        if ls dist/*.uf2 1> /dev/null 2>&1; then
+          echo "✓ UF2 files downloaded successfully"
+          echo "UF2 files:"
+          ls -1 dist/*.uf2
+        else
+          echo "✗ No UF2 files found"
+          exit 1
+        fi
+        
+    - name: Create Release
+      uses: softprops/action-gh-release@v1
+      if: startsWith(github.ref, 'refs/tags/')
+      with:
+        files: dist/*
+        name: Release ${{ github.ref_name }}
+        body: |
+          ## Pico-Ducky Release ${{ github.ref_name }}
+          
+          ### New WiFi Features
+          - **Client Mode**: Connect to your home network instead of creating a hotspot
+          - **AP Mode**: Create hotspot (original behavior)
+          - **Auto Fallback**: Automatically switches to AP mode if client connection fails
+          - **Enhanced Access**: Access from anywhere on your network in client mode
+          
+          ### Installation
+          1. Download the bundle for your board type
+          2. Extract the ZIP file
+          3. Follow the INSTALL.txt instructions included in the bundle
+          4. Configure your WiFi settings in secrets.py
+          
+          ### Supported Boards
+          - Raspberry Pi Pico
+          - Raspberry Pi Pico W
+          - Raspberry Pi Pico 2
+          - Raspberry Pi Pico 2 W
+          
+          ### WiFi Configuration
+          ```python
+          # For home network (recommended)
+          wifi_mode = 'client'
+          home_network = {'ssid': 'YourNetwork', 'password': 'YourPassword'}
+          
+          # For hotspot mode (original)
+          wifi_mode = 'ap'
+          secrets = {'ssid': 'PicoDucky', 'password': 'YourPassword'}
+          ```
+          
+          Each bundle includes:
+          - CircuitPython UF2 file for easy flashing
+          - All Python source files
+          - Required libraries
+          - Documentation and examples
+          - Installation instructions
+        draft: false
+        prerelease: false
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        
+    - name: Upload Build Artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: pico-ducky-release
+        path: dist/*
+        retention-days: 30

@@ -1,0 +1,155 @@
+name: Test Build
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+      
+    - name: Setup Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.x'
+        
+    - name: Install dependencies
+      run: pip install requests
+      
+    - name: Test UF2 download
+      run: |
+        python3 << 'EOF'
+        import requests
+        import os
+        
+        # Test downloading one UF2 file
+        CP_VERSION = "9.2.1"
+        test_url = f"https://downloads.circuitpython.org/bin/raspberry_pi_pico_w/en_US/adafruit-circuitpython-raspberry_pi_pico_w-en_US-{CP_VERSION}.uf2"
+        
+        print(f"Testing download from: {test_url}")
+        
+        try:
+            response = requests.get(test_url, timeout=30)
+            response.raise_for_status()
+            print(f"✓ Successfully downloaded {len(response.content)} bytes")
+            
+            # Verify it's a valid UF2 file (should start with UF2 magic)
+            if response.content[:4] == b'UF2\n':
+                print("✓ Valid UF2 file format")
+            else:
+                print("✗ Invalid UF2 file format")
+                
+        except Exception as e:
+            print(f"✗ Download failed: {e}")
+            exit(1)
+        EOF
+        
+    - name: Test library bundle download
+      run: |
+        python3 << 'EOF'
+        import requests
+        import zipfile
+        import os
+        
+        print("Testing CircuitPython library bundle download...")
+        
+        try:
+            # Get latest release info
+            releases_response = requests.get("https://api.github.com/repos/adafruit/Adafruit_CircuitPython_Bundle/releases/latest", timeout=30)
+            releases_response.raise_for_status()
+            latest_release = releases_response.json()
+            
+            print(f"Latest release: {latest_release['tag_name']}")
+            
+            # Find the 9.x-mpy bundle
+            bundle_url = None
+            for asset in latest_release.get('assets', []):
+                if 'adafruit-circuitpython-bundle-9.x-mpy' in asset['name'] and asset['name'].endswith('.zip'):
+                    bundle_url = asset['browser_download_url']
+                    break
+            
+            if not bundle_url:
+                print("✗ No suitable bundle found")
+                exit(1)
+            
+            print(f"Bundle URL: {bundle_url}")
+            
+            # Download bundle
+            response = requests.get(bundle_url, timeout=120)
+            response.raise_for_status()
+            
+            # Test extraction
+            with open("test_bundle.zip", "wb") as f:
+                f.write(response.content)
+            
+            with zipfile.ZipFile("test_bundle.zip", "r") as zipf:
+                file_list = zipf.namelist()
+                print(f"✓ Bundle contains {len(file_list)} files")
+                
+                # Check for required libraries
+                required_libs = ['adafruit_hid', 'adafruit_debouncer.mpy', 'asyncio']
+                found_libs = []
+                
+                for lib in required_libs:
+                    lib_found = any(lib in f for f in file_list)
+                    if lib_found:
+                        found_libs.append(lib)
+                        print(f"✓ Found {lib}")
+                    else:
+                        print(f"✗ Missing {lib}")
+                
+                if len(found_libs) == len(required_libs):
+                    print("✓ All required libraries found")
+                else:
+                    print(f"✗ Missing {len(required_libs) - len(found_libs)} required libraries")
+            
+            # Cleanup
+            os.remove("test_bundle.zip")
+            
+        except Exception as e:
+            print(f"✗ Library bundle test failed: {e}")
+            exit(1)
+        EOF
+        
+    - name: Test project structure
+      run: |
+        echo "Testing project structure..."
+        
+        # Check required Python files
+        required_files=("code.py" "duckyinpython.py" "webapp.py" "wsgiserver.py" "secrets.py")
+        
+        for file in "${required_files[@]}"; do
+          if [ -f "$file" ]; then
+            echo "✓ Found $file"
+          else
+            echo "✗ Missing $file"
+            exit 1
+          fi
+        done
+        
+        # Check documentation files
+        doc_files=("README.md" "WIFI_GUIDE.md" "CHANGES.md")
+        
+        for file in "${doc_files[@]}"; do
+          if [ -f "$file" ]; then
+            echo "✓ Found $file"
+          else
+            echo "✗ Missing $file"
+          fi
+        done
+        
+        # Check examples directory
+        if [ -d "examples" ]; then
+          echo "✓ Found examples directory"
+          echo "  Examples:"
+          ls -1 examples/
+        else
+          echo "✗ Missing examples directory"
+        fi
+        
+        echo "✓ Project structure validation complete"

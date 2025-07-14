@@ -1,0 +1,189 @@
+name: Manual Build
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version (e.g., v1.0.0)'
+        required: true
+        default: 'v1.0.0'
+      board:
+        description: 'Board type'
+        required: true
+        default: 'raspberry_pi_pico_w'
+        type: choice
+        options:
+        - raspberry_pi_pico
+        - raspberry_pi_pico_w
+        - raspberry_pi_pico2
+        - raspberry_pi_pico2_w
+        - all
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+      
+    - name: Setup Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.x'
+        
+    - name: Install dependencies
+      run: pip install requests
+      
+    - name: Build release
+      run: |
+        python3 << 'EOF'
+        import os
+        import requests
+        import zipfile
+        import shutil
+        
+        VERSION = "${{ github.event.inputs.version }}"
+        BOARD_INPUT = "${{ github.event.inputs.board }}"
+        CP_VERSION = "9.2.1"
+        
+        # Board configurations
+        BOARDS = {
+            "raspberry_pi_pico": f"https://downloads.circuitpython.org/bin/raspberry_pi_pico/en_US/adafruit-circuitpython-raspberry_pi_pico-en_US-{CP_VERSION}.uf2",
+            "raspberry_pi_pico_w": f"https://downloads.circuitpython.org/bin/raspberry_pi_pico_w/en_US/adafruit-circuitpython-raspberry_pi_pico_w-en_US-{CP_VERSION}.uf2",
+            "raspberry_pi_pico2": f"https://downloads.circuitpython.org/bin/raspberry_pi_pico2/en_US/adafruit-circuitpython-raspberry_pi_pico2-en_US-{CP_VERSION}.uf2",
+            "raspberry_pi_pico2_w": f"https://downloads.circuitpython.org/bin/raspberry_pi_pico2_w/en_US/adafruit-circuitpython-raspberry_pi_pico2_w-en_US-{CP_VERSION}.uf2"
+        }
+        
+        # Determine which boards to build
+        if BOARD_INPUT == "all":
+            build_boards = BOARDS.keys()
+        else:
+            build_boards = [BOARD_INPUT]
+        
+        os.makedirs("dist", exist_ok=True)
+        
+        print(f"Building for boards: {list(build_boards)}")
+        
+        # Download libraries once
+        print("Setting up libraries...")
+        os.makedirs("lib", exist_ok=True)
+        
+        try:
+            bundle_url = "https://github.com/adafruit/Adafruit_CircuitPython_Bundle/releases/latest/download/adafruit-circuitpython-bundle-9.x-mpy-20241217.zip"
+            response = requests.get(bundle_url, timeout=60)
+            response.raise_for_status()
+            
+            with open("bundle.zip", "wb") as f:
+                f.write(response.content)
+            
+            with zipfile.ZipFile("bundle.zip", "r") as zip_ref:
+                zip_ref.extractall("bundle_temp")
+            
+            bundle_dirs = [d for d in os.listdir("bundle_temp") if d.startswith("adafruit-circuitpython-bundle")]
+            if bundle_dirs:
+                bundle_dir = os.path.join("bundle_temp", bundle_dirs[0], "lib")
+                
+                required_libs = ["adafruit_hid", "adafruit_debouncer.mpy", "adafruit_ticks.mpy", "asyncio", "adafruit_wsgi"]
+                
+                for lib in required_libs:
+                    src = os.path.join(bundle_dir, lib)
+                    dst = os.path.join("lib", lib)
+                    if os.path.exists(src):
+                        if os.path.isdir(src):
+                            shutil.copytree(src, dst)
+                        else:
+                            shutil.copy2(src, dst)
+                        print(f"  ✓ {lib}")
+            
+            os.remove("bundle.zip")
+            shutil.rmtree("bundle_temp")
+            
+        except Exception as e:
+            print(f"Library setup failed: {e}")
+        
+        # Build for each board
+        for board in build_boards:
+            print(f"Building for {board}...")
+            
+            # Download UF2
+            uf2_url = BOARDS[board]
+            uf2_filename = f"adafruit-circuitpython-{board}-en_US-{CP_VERSION}.uf2"
+            
+            try:
+                response = requests.get(uf2_url, timeout=30)
+                response.raise_for_status()
+                with open(f"dist/{uf2_filename}", "wb") as f:
+                    f.write(response.content)
+                print(f"  ✓ Downloaded {uf2_filename}")
+            except Exception as e:
+                print(f"  ✗ Failed to download {uf2_filename}: {e}")
+                continue
+            
+            # Create bundle
+            bundle_name = f"pico-ducky-{VERSION}-{board}"
+            bundle_dir = bundle_name
+            
+            if os.path.exists(bundle_dir):
+                shutil.rmtree(bundle_dir)
+            os.makedirs(bundle_dir)
+            
+            # Copy files
+            for file in os.listdir("."):
+                if file.endswith(".py"):
+                    shutil.copy2(file, bundle_dir)
+            
+            if os.path.exists("lib"):
+                shutil.copytree("lib", os.path.join(bundle_dir, "lib"))
+            
+            for file in os.listdir("."):
+                if file.endswith(".md"):
+                    shutil.copy2(file, bundle_dir)
+            
+            if os.path.exists("examples"):
+                shutil.copytree("examples", os.path.join(bundle_dir, "examples"))
+            
+            # Copy UF2
+            shutil.copy2(f"dist/{uf2_filename}", bundle_dir)
+            
+            # Create install instructions
+            install_lines = [
+                f"Pico-Ducky Installation for {board}",
+                "",
+                "1. Hold BOOTSEL button and connect Pico to computer",
+                f"2. Copy {uf2_filename} to RPI-RP2 drive",
+                "3. Device reboots as CIRCUITPY",
+                "4. Copy all .py files to CIRCUITPY",
+                "5. Copy lib folder to CIRCUITPY",
+                "6. Edit secrets.py for WiFi configuration",
+                "7. Safely eject and run",
+                "",
+                "WiFi Modes:",
+                "- Client mode: connects to home network",
+                "- AP mode: creates hotspot",
+                "- Auto fallback if client fails"
+            ]
+            
+            with open(os.path.join(bundle_dir, "INSTALL.txt"), "w") as f:
+                f.write("\n".join(install_lines))
+            
+            # Create ZIP
+            zip_path = os.path.join("dist", f"{bundle_name}.zip")
+            with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zipf:
+                for root, dirs, files in os.walk(bundle_dir):
+                    for file in files:
+                        file_path = os.path.join(root, file)
+                        arc_path = os.path.relpath(file_path, ".")
+                        zipf.write(file_path, arc_path)
+            
+            print(f"  ✓ Created {bundle_name}.zip")
+            shutil.rmtree(bundle_dir)
+        
+        print("Build complete!")
+        EOF
+        
+    - name: Upload Artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: pico-ducky-manual-build
+        path: dist/*

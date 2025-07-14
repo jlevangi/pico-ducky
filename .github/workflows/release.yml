@@ -1,0 +1,158 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+      
+    - name: Setup Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.x'
+        
+    - name: Install dependencies
+      run: |
+        pip install requests
+        
+    - name: Download CircuitPython UF2 files
+      run: |
+        mkdir -p dist
+        
+        # Download CircuitPython UF2 files
+        wget -O dist/adafruit-circuitpython-raspberry_pi_pico-en_US-9.2.1.uf2 \
+          "https://downloads.circuitpython.org/bin/raspberry_pi_pico/en_US/adafruit-circuitpython-raspberry_pi_pico-en_US-9.2.1.uf2"
+        
+        wget -O dist/adafruit-circuitpython-raspberry_pi_pico_w-en_US-9.2.1.uf2 \
+          "https://downloads.circuitpython.org/bin/raspberry_pi_pico_w/en_US/adafruit-circuitpython-raspberry_pi_pico_w-en_US-9.2.1.uf2"
+        
+        wget -O dist/adafruit-circuitpython-raspberry_pi_pico2-en_US-9.2.1.uf2 \
+          "https://downloads.circuitpython.org/bin/raspberry_pi_pico2/en_US/adafruit-circuitpython-raspberry_pi_pico2-en_US-9.2.1.uf2"
+        
+        wget -O dist/adafruit-circuitpython-raspberry_pi_pico2_w-en_US-9.2.1.uf2 \
+          "https://downloads.circuitpython.org/bin/raspberry_pi_pico2_w/en_US/adafruit-circuitpython-raspberry_pi_pico2_w-en_US-9.2.1.uf2"
+        
+    - name: Download CircuitPython Libraries
+      run: |
+        # Download the latest CircuitPython bundle
+        wget -O bundle.zip "https://github.com/adafruit/Adafruit_CircuitPython_Bundle/releases/latest/download/adafruit-circuitpython-bundle-9.x-mpy-20241217.zip"
+        
+        # Extract and setup lib directory
+        unzip bundle.zip
+        bundle_dir=$(ls -d adafruit-circuitpython-bundle-*)
+        
+        # Create lib directory and copy required libraries
+        mkdir -p lib
+        cp -r "${bundle_dir}/lib/adafruit_hid" lib/
+        cp "${bundle_dir}/lib/adafruit_debouncer.mpy" lib/
+        cp "${bundle_dir}/lib/adafruit_ticks.mpy" lib/
+        cp -r "${bundle_dir}/lib/asyncio" lib/
+        cp -r "${bundle_dir}/lib/adafruit_wsgi" lib/
+        
+        # Clean up
+        rm bundle.zip
+        rm -rf adafruit-circuitpython-bundle-*
+        
+    - name: Create release bundles
+      run: |
+        VERSION=${GITHUB_REF#refs/tags/}
+        if [ -z "$VERSION" ]; then
+          VERSION="v$(date +%Y%m%d)"
+        fi
+        
+        # Create release bundles for each board
+        boards=("raspberry_pi_pico" "raspberry_pi_pico_w" "raspberry_pi_pico2" "raspberry_pi_pico2_w")
+        
+        for board in "${boards[@]}"; do
+          echo "Creating bundle for $board..."
+          
+          # Create bundle directory
+          bundle_dir="pico-ducky-$VERSION-$board"
+          mkdir -p "$bundle_dir"
+          
+          # Copy source files
+          cp *.py "$bundle_dir/"
+          cp -r lib "$bundle_dir/"
+          cp *.md "$bundle_dir/"
+          
+          # Copy examples if they exist
+          if [ -d "examples" ]; then
+            cp -r examples "$bundle_dir/"
+          fi
+          
+          # Copy the UF2 file for this board
+          uf2_file="dist/adafruit-circuitpython-$board-en_US-9.2.1.uf2"
+          if [ -f "$uf2_file" ]; then
+            cp "$uf2_file" "$bundle_dir/"
+          fi
+          
+          # Create installation instructions
+          cat > "$bundle_dir/INSTALL.txt" << 'EOF'
+        Pico-Ducky Installation Instructions
+        
+        1. Connect your Raspberry Pi Pico while holding the BOOTSEL button
+        2. Device appears as USB drive "RPI-RP2"
+        3. Copy the .uf2 file to RPI-RP2
+        4. Device reboots and appears as "CIRCUITPY"
+        5. Copy all .py files to CIRCUITPY root
+        6. Copy lib folder to CIRCUITPY root
+        7. Edit secrets.py for WiFi settings
+        8. Safely eject and run
+        
+        See README.md for detailed setup
+        See WIFI_GUIDE.md for WiFi configuration
+        EOF
+          
+          # Create ZIP bundle
+          zip -r "dist/pico-ducky-$VERSION-$board.zip" "$bundle_dir"
+          
+          echo "Created: pico-ducky-$VERSION-$board.zip"
+        done
+        
+    - name: Create Release
+      uses: softprops/action-gh-release@v1
+      if: startsWith(github.ref, 'refs/tags/')
+      with:
+        files: |
+          dist/*.zip
+          dist/*.uf2
+        name: Release ${{ github.ref_name }}
+        body: |
+          ## Pico-Ducky Release ${{ github.ref_name }}
+          
+          ### Features
+          - WiFi Client Mode: Connect to home network
+          - WiFi AP Mode: Create hotspot (original behavior)
+          - Automatic fallback if client connection fails
+          - Enhanced web interface
+          - Backward compatibility
+          
+          ### Installation
+          1. Download bundle for your board
+          2. Extract ZIP file
+          3. Follow INSTALL.txt instructions
+          4. Configure WiFi in secrets.py
+          
+          ### Supported Boards
+          - Raspberry Pi Pico
+          - Raspberry Pi Pico W  
+          - Raspberry Pi Pico 2
+          - Raspberry Pi Pico 2 W
+        draft: false
+        prerelease: false
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        
+    - name: Upload Artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: pico-ducky-release
+        path: dist/*

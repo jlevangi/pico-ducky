@@ -1,0 +1,240 @@
+name: Build Pico-Ducky UF2 Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version tag (e.g., v1.0.0)'
+        required: true
+        default: 'v1.0.0'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.x'
+        
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install requests
+        
+    - name: Create build directory
+      run: mkdir -p build
+      
+    - name: Download CircuitPython UF2 files
+      run: |
+        # Download CircuitPython UF2 files for supported boards
+        python3 << 'EOF'
+        import requests
+        import os
+        
+        # CircuitPython version
+        CP_VERSION = "9.2.1"
+        
+        # Supported boards and their download URLs
+        boards = {
+            "raspberry_pi_pico": f"https://downloads.circuitpython.org/bin/raspberry_pi_pico/en_US/adafruit-circuitpython-raspberry_pi_pico-en_US-{CP_VERSION}.uf2",
+            "raspberry_pi_pico_w": f"https://downloads.circuitpython.org/bin/raspberry_pi_pico_w/en_US/adafruit-circuitpython-raspberry_pi_pico_w-en_US-{CP_VERSION}.uf2",
+            "raspberry_pi_pico2": f"https://downloads.circuitpython.org/bin/raspberry_pi_pico2/en_US/adafruit-circuitpython-raspberry_pi_pico2-en_US-{CP_VERSION}.uf2",
+            "raspberry_pi_pico2_w": f"https://downloads.circuitpython.org/bin/raspberry_pi_pico2_w/en_US/adafruit-circuitpython-raspberry_pi_pico2_w-en_US-{CP_VERSION}.uf2"
+        }
+        
+        os.makedirs("build", exist_ok=True)
+        
+        for board, url in boards.items():
+            print(f"Downloading {board} UF2...")
+            response = requests.get(url)
+            if response.status_code == 200:
+                filename = f"adafruit-circuitpython-{board}-en_US-{CP_VERSION}.uf2"
+                with open(f"build/{filename}", "wb") as f:
+                    f.write(response.content)
+                print(f"Downloaded {filename}")
+            else:
+                print(f"Failed to download {board}: {response.status_code}")
+        EOF
+        
+    - name: Download CircuitPython Libraries
+      run: |
+        # Download required libraries
+        python3 << 'EOF'
+        import requests
+        import zipfile
+        import os
+        import shutil
+        
+        # Download CircuitPython bundle
+        bundle_url = "https://github.com/adafruit/Adafruit_CircuitPython_Bundle/releases/latest/download/adafruit-circuitpython-bundle-9.x-mpy-20241217.zip"
+        
+        print("Downloading CircuitPython bundle...")
+        response = requests.get(bundle_url)
+        
+        if response.status_code == 200:
+            with open("bundle.zip", "wb") as f:
+                f.write(response.content)
+            
+            # Extract bundle
+            with zipfile.ZipFile("bundle.zip", "r") as zip_ref:
+                zip_ref.extractall("bundle_temp")
+            
+            # Find the bundle directory
+            bundle_dirs = [d for d in os.listdir("bundle_temp") if d.startswith("adafruit-circuitpython-bundle")]
+            if bundle_dirs:
+                bundle_dir = os.path.join("bundle_temp", bundle_dirs[0])
+                lib_src = os.path.join(bundle_dir, "lib")
+                
+                # Create lib directory structure
+                os.makedirs("lib", exist_ok=True)
+                
+                # Copy required libraries
+                required_libs = [
+                    "adafruit_hid",
+                    "adafruit_debouncer.mpy",
+                    "adafruit_ticks.mpy",
+                    "asyncio",
+                    "adafruit_wsgi"
+                ]
+                
+                for lib in required_libs:
+                    src_path = os.path.join(lib_src, lib)
+                    if os.path.exists(src_path):
+                        if os.path.isdir(src_path):
+                            shutil.copytree(src_path, os.path.join("lib", lib))
+                        else:
+                            shutil.copy2(src_path, "lib")
+                        print(f"Copied {lib}")
+                    else:
+                        print(f"Warning: {lib} not found")
+            
+            # Clean up
+            os.remove("bundle.zip")
+            shutil.rmtree("bundle_temp")
+            print("Library setup complete")
+        else:
+            print(f"Failed to download bundle: {response.status_code}")
+        EOF
+        
+    - name: Create release bundles
+      run: |
+        # Set version from tag or input
+        if [ "${{ github.event_name }}" = "push" ]; then
+          VERSION=${GITHUB_REF#refs/tags/}
+        else
+          VERSION=${{ github.event.inputs.version }}
+        fi
+        
+        echo "Building release for version: $VERSION"
+        
+        # Create release directory
+        mkdir -p release
+        
+        # Create different board bundles
+        boards=("raspberry_pi_pico" "raspberry_pi_pico_w" "raspberry_pi_pico2" "raspberry_pi_pico2_w")
+        
+        for board in "${boards[@]}"; do
+          echo "Creating bundle for $board..."
+          
+          # Create board-specific directory
+          mkdir -p "release/pico-ducky-$VERSION-$board"
+          
+          # Copy Python files
+          cp *.py "release/pico-ducky-$VERSION-$board/"
+          
+          # Copy lib directory
+          cp -r lib "release/pico-ducky-$VERSION-$board/"
+          
+          # Copy documentation
+          cp *.md "release/pico-ducky-$VERSION-$board/"
+          
+          # Copy example files
+          cp -r examples "release/pico-ducky-$VERSION-$board/" 2>/dev/null || true
+          
+          # Copy UF2 file if it exists
+          uf2_file="build/adafruit-circuitpython-$board-en_US-9.2.1.uf2"
+          if [ -f "$uf2_file" ]; then
+            cp "$uf2_file" "release/pico-ducky-$VERSION-$board/"
+          fi
+          
+          # Create installation instructions
+          cat > "release/pico-ducky-$VERSION-$board/INSTALL.txt" << 'EOL'
+        Pico-Ducky Installation Instructions
+
+        1. Connect your Raspberry Pi Pico/Pico W to your computer while holding the BOOTSEL button
+        2. The device will appear as a USB drive named "RPI-RP2"
+        3. Copy the .uf2 file to the RPI-RP2 drive
+        4. The device will reboot and appear as "CIRCUITPY"
+        5. Copy all Python files (*.py) to the root of CIRCUITPY
+        6. Copy the lib folder to the root of CIRCUITPY
+        7. Edit secrets.py to configure your WiFi settings
+        8. Safely eject the device and it will start running
+
+        For detailed setup instructions, see README.md
+        For WiFi configuration help, see WIFI_GUIDE.md
+        EOL
+          
+          # Create ZIP bundle
+          (cd release && zip -r "pico-ducky-$VERSION-$board.zip" "pico-ducky-$VERSION-$board")
+          
+          echo "Created bundle: pico-ducky-$VERSION-$board.zip"
+        done
+        
+    - name: Create GitHub Release
+      uses: softprops/action-gh-release@v1
+      if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
+      with:
+        files: |
+          release/*.zip
+          build/*.uf2
+        tag_name: ${{ github.event.inputs.version || github.ref_name }}
+        name: ${{ github.event.inputs.version || github.ref_name }}
+        body: |
+          ## Pico-Ducky Release ${{ github.event.inputs.version || github.ref_name }}
+          
+          ### What's Included
+          - Complete Pico-Ducky installation bundles for all supported boards
+          - CircuitPython UF2 files for easy flashing
+          - All required libraries and dependencies
+          - Updated WiFi configuration with client/AP mode support
+          
+          ### Supported Boards
+          - Raspberry Pi Pico
+          - Raspberry Pi Pico W
+          - Raspberry Pi Pico 2
+          - Raspberry Pi Pico 2 W
+          
+          ### Installation
+          1. Download the appropriate bundle for your board
+          2. Extract the ZIP file
+          3. Follow the INSTALL.txt instructions
+          4. Configure WiFi settings in secrets.py
+          
+          ### New Features
+          - **WiFi Client Mode**: Connect to your home network instead of creating a hotspot
+          - **Automatic Fallback**: Falls back to AP mode if client connection fails
+          - **Enhanced Web Interface**: Accessible from your home network
+          - **Backward Compatibility**: Works with existing configurations
+          
+          For detailed setup and WiFi configuration, see the included documentation.
+        draft: false
+        prerelease: false
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: pico-ducky-builds
+        path: |
+          release/*.zip
+          build/*.uf2
+        retention-days: 30

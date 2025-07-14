@@ -42,18 +42,41 @@ jobs:
         wget -O dist/adafruit-circuitpython-raspberry_pi_pico2_w-en_US-9.2.1.uf2 \
           "https://downloads.circuitpython.org/bin/raspberry_pi_pico2_w/en_US/adafruit-circuitpython-raspberry_pi_pico2_w-en_US-9.2.1.uf2"
         
+    - name: Install jq
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y jq
+        
     - name: Fetch Latest CircuitPython Bundle URL
       id: fetch-bundle-url
       run: |
         API_URL="https://api.github.com/repos/adafruit/Adafruit_CircuitPython_Bundle/releases/latest"
         echo "Fetching API response from $API_URL..."
-        RESPONSE=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" $API_URL)
-        echo "API Response: $RESPONSE"
-        BUNDLE_URL=$(echo "$RESPONSE" | jq -r '.assets[] | select(.name | contains("adafruit-circuitpython-bundle-9.x-mpy.zip")) | .browser_download_url')
-        if [ -z "$BUNDLE_URL" ]; then
-          echo "Error: Failed to fetch the latest CircuitPython bundle URL. Check API response or authentication."
+        
+        # First try without authentication (public repo, higher rate limit)
+        RESPONSE=$(curl -s "$API_URL")
+        
+        # Check if we need to use authentication (rate limit hit)
+        if echo "$RESPONSE" | grep -q "rate limit exceeded" || echo "$RESPONSE" | grep -q "API rate limit exceeded"; then
+          echo "Rate limit hit, retrying with authentication..."
+          RESPONSE=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" "$API_URL")
+        fi
+        
+        # Debug output (truncated)
+        echo "Response length: $(echo "$RESPONSE" | wc -c)"
+        echo "Response contains assets: $(echo "$RESPONSE" | grep -c "browser_download_url" || echo "0")"
+        
+        # Parse the bundle URL using jq
+        BUNDLE_URL=$(echo "$RESPONSE" | jq -r '.assets[]? | select(.name? | contains("adafruit-circuitpython-bundle-9.x-mpy") and endswith(".zip")) | .browser_download_url' | head -1)
+        
+        if [ -z "$BUNDLE_URL" ] || [ "$BUNDLE_URL" = "null" ]; then
+          echo "Error: Failed to find CircuitPython bundle URL"
+          echo "Available assets:"
+          echo "$RESPONSE" | jq -r '.assets[]?.name' | head -10
           exit 1
         fi
+        
+        echo "Found bundle URL: $BUNDLE_URL"
         echo "bundle_url=$BUNDLE_URL" >> $GITHUB_OUTPUT
 
     - name: Download CircuitPython Libraries

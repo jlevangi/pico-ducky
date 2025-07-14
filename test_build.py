@@ -49,19 +49,30 @@ def test_build():
     # Test library download
     print("Testing library download...")
     try:
-        # Get latest release
+        # Get latest release (without authentication, like workflow will try first)
+        print("  Fetching latest release info...")
         releases_response = requests.get("https://api.github.com/repos/adafruit/Adafruit_CircuitPython_Bundle/releases/latest", timeout=30)
         releases_response.raise_for_status()
         latest_release = releases_response.json()
         
+        print(f"  Latest release: {latest_release.get('tag_name', 'unknown')}")
+        
         # Find bundle URL
         bundle_url = None
-        for asset in latest_release.get('assets', []):
-            if 'adafruit-circuitpython-bundle-9.x-mpy' in asset['name'] and asset['name'].endswith('.zip'):
+        assets = latest_release.get('assets', [])
+        print(f"  Found {len(assets)} assets in release")
+        
+        for asset in assets:
+            asset_name = asset.get('name', '')
+            if 'adafruit-circuitpython-bundle-9.x-mpy' in asset_name and asset_name.endswith('.zip'):
                 bundle_url = asset['browser_download_url']
+                print(f"  Found matching bundle: {asset_name}")
                 break
         
         if not bundle_url:
+            print("  Available assets:")
+            for asset in assets[:5]:  # Show first 5 assets
+                print(f"    - {asset.get('name', 'unknown')}")
             print("  ✗ No suitable bundle found")
             return False
         
@@ -71,6 +82,7 @@ def test_build():
         
         with open("test_bundle.zip", "wb") as f:
             f.write(response.content)
+        print(f"  ✓ Downloaded bundle ({len(response.content)} bytes)")
         
         # Extract bundle
         with zipfile.ZipFile("test_bundle.zip", "r") as zip_ref:
@@ -78,30 +90,34 @@ def test_build():
         
         # Find bundle directory
         bundle_dirs = [d for d in os.listdir("test_bundle_temp") if d.startswith("adafruit-circuitpython-bundle")]
-        if bundle_dirs:
-            bundle_dir = os.path.join("test_bundle_temp", bundle_dirs[0], "lib")
+        if not bundle_dirs:
+            print("  ✗ No bundle directory found after extraction")
+            return False
             
-            # Required libraries
-            required_libs = [
-                "adafruit_hid",
-                "adafruit_debouncer.mpy", 
-                "adafruit_ticks.mpy",
-                "asyncio",
-                "adafruit_wsgi"
-            ]
-            
-            # Copy libraries
-            for lib in required_libs:
-                src = os.path.join(bundle_dir, lib)
-                dst = os.path.join("test_lib", lib)
-                if os.path.exists(src):
-                    if os.path.isdir(src):
-                        shutil.copytree(src, dst)
-                    else:
-                        shutil.copy2(src, dst)
-                    print(f"  ✓ Copied {lib}")
+        bundle_dir = os.path.join("test_bundle_temp", bundle_dirs[0], "lib")
+        print(f"  Using bundle directory: {bundle_dirs[0]}")
+        
+        # Required libraries
+        required_libs = [
+            "adafruit_hid",
+            "adafruit_debouncer.mpy", 
+            "adafruit_ticks.mpy",
+            "asyncio",
+            "adafruit_wsgi"
+        ]
+        
+        # Copy libraries
+        for lib in required_libs:
+            src = os.path.join(bundle_dir, lib)
+            dst = os.path.join("test_lib", lib)
+            if os.path.exists(src):
+                if os.path.isdir(src):
+                    shutil.copytree(src, dst)
                 else:
-                    print(f"  ✗ Missing {lib}")
+                    shutil.copy2(src, dst)
+                print(f"  ✓ Copied {lib}")
+            else:
+                print(f"  ✗ Missing {lib}")
         
         # Cleanup
         os.remove("test_bundle.zip")

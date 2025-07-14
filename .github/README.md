@@ -5,17 +5,22 @@ This repository includes GitHub Actions workflows to automatically build and rel
 ## Available Workflows
 
 ### 1. Build UF2 Release (`build-uf2.yml`)
-- **Trigger**: Automatically runs when you push a git tag starting with `v` (e.g., `v1.0.0`)
+- **Trigger**: Automatically runs when you push a git tag starting with `v` (e.g., `v1.0.0`) **from any branch**
 - **Purpose**: Creates a complete release with UF2 files for all supported boards
 - **Output**: GitHub release with ZIP bundles and UF2 files
 
-### 2. Manual Build (`manual-build.yml`)
+### 2. Test Build (`test-build.yml`)
+- **Trigger**: Runs on pull requests to main/master branches, or manual trigger
+- **Purpose**: Validates the build process without creating releases
+- **Output**: Test results and validation
+
+### 3. Manual Build (`manual-build.yml`)
 - **Trigger**: Manual trigger from GitHub Actions tab
 - **Purpose**: Build for specific board or all boards on demand
 - **Options**: Choose version and board type
 - **Output**: Build artifacts (downloadable from Actions tab)
 
-### 3. Build and Release (`release.yml`)
+### 4. Build and Release (`release.yml`)
 - **Trigger**: Tag pushes or manual dispatch
 - **Purpose**: Alternative release workflow with simplified build process
 - **Output**: GitHub release with complete bundles
@@ -23,6 +28,8 @@ This repository includes GitHub Actions workflows to automatically build and rel
 ## How to Use
 
 ### Creating a Release
+**Important**: Releases can be created from any branch by tagging a commit.
+
 1. Tag your commit with a version number:
    ```bash
    git tag v1.0.0
@@ -34,6 +41,17 @@ This repository includes GitHub Actions workflows to automatically build and rel
    - Download required CircuitPython libraries
    - Create installation bundles for each board
    - Create a GitHub release with all files
+
+**To ensure releases only from main branch:**
+```bash
+# Switch to main branch first
+git checkout main
+git pull origin main
+
+# Then tag and push
+git tag v1.0.0
+git push origin v1.0.0
+```
 
 ### Manual Build
 1. Go to the "Actions" tab in your GitHub repository

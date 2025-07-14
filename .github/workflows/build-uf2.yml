@@ -14,6 +14,17 @@ jobs:
     - name: Checkout
       uses: actions/checkout@v4
       
+    - name: Check if tag is on main branch
+      run: |
+        # Check if the tag points to a commit that's on main/master
+        if git branch --contains ${{ github.sha }} | grep -E '(main|master)'; then
+          echo "✓ Tag is on main/master branch"
+        else
+          echo "✗ Tag is not on main/master branch"
+          echo "Releases are only allowed from main/master branch"
+          exit 1
+        fi
+      
     - name: Setup Python
       uses: actions/setup-python@v4
       with:

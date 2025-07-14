@@ -44,9 +44,12 @@ jobs:
       id: fetch-bundle-url
       run: |
         API_URL="https://api.github.com/repos/adafruit/Adafruit_CircuitPython_Bundle/releases/latest"
-        BUNDLE_URL=$(curl -s $API_URL | grep "browser_download_url" | grep "adafruit-circuitpython-bundle-9.x-mpy.zip" | cut -d '"' -f 4)
+        echo "Fetching API response from $API_URL..."
+        RESPONSE=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" $API_URL)
+        echo "API Response: $RESPONSE"
+        BUNDLE_URL=$(echo "$RESPONSE" | jq -r '.assets[] | select(.name | contains("adafruit-circuitpython-bundle-9.x-mpy.zip")) | .browser_download_url')
         if [ -z "$BUNDLE_URL" ]; then
-          echo "Error: Failed to fetch the latest CircuitPython bundle URL."
+          echo "Error: Failed to fetch the latest CircuitPython bundle URL. Check API response or authentication."
           exit 1
         fi
         echo "::set-output name=bundle_url::$BUNDLE_URL"
@@ -85,6 +88,16 @@ jobs:
     - name: Debug lib Directory
       run: |
         echo "Contents of lib directory:"
+        ls -l lib
+
+    - name: Debug After Download
+      run: |
+        echo "Checking if 'lib' directory exists after download..."
+        if [ ! -d "lib" ]; then
+          echo "Error: 'lib' directory is missing after download step."
+          exit 1
+        fi
+        echo "Contents of 'lib' directory after download:"
         ls -l lib
         
     - name: Create release bundles

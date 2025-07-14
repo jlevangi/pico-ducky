@@ -4,6 +4,8 @@ on:
   push:
     tags:
       - 'v*'
+    branches:
+      - 'wifi'  # Allow testing on wifi branch
   workflow_dispatch:
 
 jobs:
@@ -52,10 +54,13 @@ jobs:
           echo "Error: Failed to fetch the latest CircuitPython bundle URL. Check API response or authentication."
           exit 1
         fi
-        echo "::set-output name=bundle_url::$BUNDLE_URL"
+        echo "bundle_url=$BUNDLE_URL" >> $GITHUB_OUTPUT
 
     - name: Download CircuitPython Libraries
       run: |
+        echo "Current working directory: $(pwd)"
+        echo "Contents before download: $(ls -la)"
+        
         # Use the dynamically fetched URL to download the latest CircuitPython bundle
         wget -O bundle.zip "${{ steps.fetch-bundle-url.outputs.bundle_url }}" || {
           echo "Error: Failed to download CircuitPython bundle. Check the URL or network connection.";
@@ -65,18 +70,58 @@ jobs:
         # Extract and setup lib directory
         unzip bundle.zip
         bundle_dir=$(ls -d adafruit-circuitpython-bundle-*)
+        echo "Bundle directory: $bundle_dir"
         
         # Create lib directory and copy required libraries
         mkdir -p lib
-        cp -r "${bundle_dir}/lib/adafruit_hid" lib/
-        cp "${bundle_dir}/lib/adafruit_debouncer.mpy" lib/
-        cp "${bundle_dir}/lib/adafruit_ticks.mpy" lib/
-        cp -r "${bundle_dir}/lib/asyncio" lib/
-        cp -r "${bundle_dir}/lib/adafruit_wsgi" lib/
+        echo "Created lib directory"
+        
+        # Copy libraries with error checking
+        if [ -d "${bundle_dir}/lib/adafruit_hid" ]; then
+          cp -r "${bundle_dir}/lib/adafruit_hid" lib/
+          echo "Copied adafruit_hid"
+        else
+          echo "Warning: adafruit_hid not found"
+        fi
+        
+        if [ -f "${bundle_dir}/lib/adafruit_debouncer.mpy" ]; then
+          cp "${bundle_dir}/lib/adafruit_debouncer.mpy" lib/
+          echo "Copied adafruit_debouncer.mpy"
+        else
+          echo "Warning: adafruit_debouncer.mpy not found"
+        fi
+        
+        if [ -f "${bundle_dir}/lib/adafruit_ticks.mpy" ]; then
+          cp "${bundle_dir}/lib/adafruit_ticks.mpy" lib/
+          echo "Copied adafruit_ticks.mpy"
+        else
+          echo "Warning: adafruit_ticks.mpy not found"
+        fi
+        
+        if [ -d "${bundle_dir}/lib/asyncio" ]; then
+          cp -r "${bundle_dir}/lib/asyncio" lib/
+          echo "Copied asyncio"
+        else
+          echo "Warning: asyncio not found"
+        fi
+        
+        if [ -d "${bundle_dir}/lib/adafruit_wsgi" ]; then
+          cp -r "${bundle_dir}/lib/adafruit_wsgi" lib/
+          echo "Copied adafruit_wsgi"
+        else
+          echo "Warning: adafruit_wsgi not found"
+        fi
+        
+        # Verify lib directory was created properly
+        echo "Contents of lib directory after copy:"
+        ls -la lib/
         
         # Clean up
         rm bundle.zip
         rm -rf adafruit-circuitpython-bundle-*
+        
+        echo "Final lib directory contents:"
+        ls -la lib/
         
     - name: Verify lib Directory
       run: |
@@ -102,10 +147,24 @@ jobs:
         
     - name: Create release bundles
       run: |
+        # Set version from tag or input
         VERSION=${GITHUB_REF#refs/tags/}
-        if [ -z "$VERSION" ]; then
-          VERSION="v$(date +%Y%m%d)"
+        if [ -z "$VERSION" ] || [ "$VERSION" = "$GITHUB_REF" ]; then
+          # If not a tag, use branch name and timestamp
+          VERSION="${GITHUB_REF#refs/heads/}-$(date +%Y%m%d-%H%M%S)"
         fi
+        echo "Building release for version: $VERSION"
+        
+        # Verify lib directory exists before proceeding
+        if [ ! -d "lib" ]; then
+          echo "Error: 'lib' directory is missing. Cannot proceed with bundle creation."
+          echo "Current directory contents:"
+          ls -la
+          exit 1
+        fi
+        
+        echo "Contents of lib directory before bundling:"
+        ls -la lib/
         
         # Create release bundles for each board
         boards=("raspberry_pi_pico" "raspberry_pi_pico_w" "raspberry_pi_pico2" "raspberry_pi_pico2_w")
@@ -118,9 +177,18 @@ jobs:
           mkdir -p "$bundle_dir"
           
           # Copy source files
-          cp *.py "$bundle_dir/"
-          cp -r lib "$bundle_dir/"
-          cp *.md "$bundle_dir/"
+          cp *.py "$bundle_dir/" 2>/dev/null || echo "No .py files found"
+          
+          # Copy lib directory with verification
+          if [ -d "lib" ]; then
+            cp -r lib "$bundle_dir/"
+            echo "Copied lib directory to $bundle_dir"
+          else
+            echo "Error: lib directory not found for $board"
+            exit 1
+          fi
+          
+          cp *.md "$bundle_dir/" 2>/dev/null || echo "No .md files found"
           
           # Copy examples if they exist
           if [ -d "examples" ]; then
@@ -193,5 +261,5 @@ jobs:
     - name: Upload Artifacts
       uses: actions/upload-artifact@v4
       with:
-        name: pico-ducky-release
+        name: pico-ducky-release-artifacts
         path: dist/*

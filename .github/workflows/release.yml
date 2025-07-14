@@ -43,8 +43,11 @@ jobs:
     - name: Download CircuitPython Libraries
       run: |
         # Download the latest CircuitPython bundle
-        wget -O bundle.zip "https://github.com/adafruit/Adafruit_CircuitPython_Bundle/releases/latest/download/adafruit-circuitpython-bundle-9.x-mpy-20241217.zip"
-        
+        wget -O bundle.zip "https://github.com/adafruit/Adafruit_CircuitPython_Bundle/releases/latest/download/adafruit-circuitpython-bundle-9.x-mpy.zip" || {
+          echo "Error: Failed to download CircuitPython bundle. Check the URL or network connection.";
+          exit 1;
+        }
+
         # Extract and setup lib directory
         unzip bundle.zip
         bundle_dir=$(ls -d adafruit-circuitpython-bundle-*)

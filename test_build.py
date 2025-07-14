@@ -167,17 +167,77 @@ def test_build():
         
         # Create installation instructions
         install_txt = f"""Pico-Ducky Test Installation for {board}
+====================================
 
 This is a test build. For production use, download from GitHub releases.
 
-Installation:
-1. Hold BOOTSEL button and connect Pico to computer
-2. Copy the .uf2 file to RPI-RP2 drive
-3. Device reboots as CIRCUITPY
-4. Copy all .py files to CIRCUITPY
-5. Copy lib folder to CIRCUITPY
-6. Edit secrets.py for WiFi configuration
-7. Safely eject and run
+IMPORTANT: Read all instructions before starting!
+
+Quick Setup (5 minutes):
+1. Connect your Raspberry Pi Pico while holding the BOOTSEL button
+2. Device appears as USB drive "RPI-RP2"
+3. Copy the .uf2 file to RPI-RP2 (device will reboot)
+4. Device reappears as "CIRCUITPY"
+5. Copy all .py files to CIRCUITPY root
+6. Copy lib folder to CIRCUITPY root
+7. Create your payload.dd file (see below)
+8. For Pico W: Edit secrets.py for WiFi settings
+9. Safely eject and test
+
+SETUP MODE (IMPORTANT FOR SAFETY):
+Before first use, enter setup mode to prevent accidental payload execution:
+- Connect pin 1 (GP0) to pin 3 (GND) with a jumper wire
+- This prevents the payload from running on your development machine
+- Remove jumper when ready to deploy
+
+CREATING PAYLOADS:
+- Create a file called "payload.dd" in the root of CIRCUITPY
+- Use Ducky Script syntax (see examples folder or README.md)
+- Example: 
+  GUI r
+  DELAY 500
+  STRING notepad
+  ENTER
+  STRING Hello World!
+
+WIFI CONFIGURATION (Pico W only):
+Edit secrets.py to configure WiFi:
+
+For Home Network (recommended):
+  wifi_mode = 'client'
+  home_network = {{'ssid': 'YourNetwork', 'password': 'YourPassword'}}
+
+For Hotspot Mode:
+  wifi_mode = 'ap'
+  secrets = {{'ssid': 'PicoDucky', 'password': 'BadPassword123'}}
+
+MULTIPLE PAYLOADS:
+Ground these pins to select different payloads:
+- GP4: payload.dd
+- GP5: payload2.dd  
+- GP10: payload3.dd
+- GP11: payload4.dd
+
+USB STEALTH MODE:
+To hide USB drive when deployed:
+- Enter setup mode
+- Connect jumper between pin 18 (GND) and pin 20 (GPIO15)
+- Note: Pico W defaults to USB disabled, Pico defaults to USB enabled
+
+WEB INTERFACE (Pico W only):
+- Access Point Mode: http://192.168.4.1:80
+- Client Mode: Check serial output for IP address
+
+TROUBLESHOOTING:
+- Device not recognized: Try different USB cable/port
+- Payload not running: Check setup mode jumper
+- WiFi issues: Verify credentials in secrets.py
+- Corrupted device: See RESET.md for recovery
+
+For detailed instructions, examples, and troubleshooting:
+See README.md and WIFI_GUIDE.md
+
+WARNING: Test payloads safely! Use setup mode and test on your own devices only.
 """
         
         with open(os.path.join(bundle_dir, "INSTALL.txt"), "w") as f:

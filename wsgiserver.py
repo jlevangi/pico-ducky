@@ -138,8 +138,19 @@ class WSGIServer:
         invoked on receiving an incoming request.
         """
         self._server_sock = pool.socket(pool.AF_INET,pool.SOCK_STREAM)
-        HOST = repr(wifi.radio.ipv4_address_ap)
-        self._server_sock.bind((repr(wifi.radio.ipv4_address_ap), self.port))
+        
+        # Try to import wifi_mode to determine which IP to use
+        try:
+            from secrets import wifi_mode
+        except ImportError:
+            wifi_mode = 'ap'  # Default to AP mode if not specified
+            
+        if wifi_mode == 'client':
+            HOST = repr(wifi.radio.ipv4_address)
+        else:
+            HOST = repr(wifi.radio.ipv4_address_ap)
+        
+        self._server_sock.bind((HOST, self.port))
         self._server_sock.listen(1)
 #         if self._debug:
 #             ip = _the_interface.pretty_ip(_the_interface.ip_address)
@@ -150,7 +161,15 @@ class WSGIServer:
 #             )
 
     def pretty_ip(self):
-        return f"http://{wifi.radio.ipv4_address_ap}:{self.port}"
+        try:
+            from secrets import wifi_mode
+        except ImportError:
+            wifi_mode = 'ap'  # Default to AP mode if not specified
+            
+        if wifi_mode == 'client':
+            return f"http://{wifi.radio.ipv4_address}:{self.port}"
+        else:
+            return f"http://{wifi.radio.ipv4_address_ap}:{self.port}"
 
     def update_poll(self):
         """
@@ -258,7 +277,18 @@ class WSGIServer:
 
         env["REQUEST_METHOD"] = method
         env["SCRIPT_NAME"] = ""
-        env["SERVER_NAME"] = str(wifi.radio.ipv4_address_ap)
+        
+        # Set SERVER_NAME based on wifi mode
+        try:
+            from secrets import wifi_mode
+        except ImportError:
+            wifi_mode = 'ap'  # Default to AP mode if not specified
+            
+        if wifi_mode == 'client':
+            env["SERVER_NAME"] = str(wifi.radio.ipv4_address)
+        else:
+            env["SERVER_NAME"] = str(wifi.radio.ipv4_address_ap)
+        
         env["SERVER_PROTOCOL"] = ver
         env["SERVER_PORT"] = self.port
         if path.find("?") >= 0:

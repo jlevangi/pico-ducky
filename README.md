@@ -107,8 +107,26 @@ Install and have your USB Rubber Ducky working in less than 5 minutes.
 
 11. Copy `duckyinpython.py`, `code.py`, `webapp.py`, `wsgiserver.py` to the root folder of the Pico.
 
-12. *For Pico W Only* Create the file `secrets.py` in the root of the Pico W. This contains the AP name and password to be created by the Pico W.  
-`secrets = { 'ssid' : "BadAPName", 'password' : "badpassword" }`
+12. *For Pico W Only* Create the file `secrets.py` in the root of the Pico W. This contains the WiFi configuration.
+
+**NEW: WiFi Mode Options**
+You can now choose between two WiFi modes:
+
+**Option 1: Connect to Home Network (Recommended)**
+```python
+wifi_mode = 'client'
+secrets = { 'ssid' : "BadAPName", 'password' : "badpassword" }
+home_network = { 'ssid' : "YourHomeNetwork", 'password' : "YourHomePassword" }
+```
+
+**Option 2: Create Hotspot (Original Behavior)**
+```python
+wifi_mode = 'ap'  
+secrets = { 'ssid' : "BadAPName", 'password' : "badpassword" }
+home_network = { 'ssid' : "YourHomeNetwork", 'password' : "YourHomePassword" }
+```
+
+See [WIFI_GUIDE.md](WIFI_GUIDE.md) for detailed configuration instructions.
 
 13. Find a script [here](https://github.com/hak5/usbrubberducky-payloads) or [create your own one using Ducky Script](https://docs.hak5.org/hak5-usb-rubber-ducky/ducky-script-basics/hello-world) and save it as `payload.dd` in the Pico. Currently, pico-ducky only supports DuckyScript 1.0, and some of 3.0.
 
@@ -117,7 +135,9 @@ Install and have your USB Rubber Ducky working in less than 5 minutes.
 15. **Please note:** by default Pico W will not show as a USB drive
 
 ### Pico W Web Service
-The Pico W AP defaults to ip address `192.168.4.1`.  You should be able to find the webservice at `http://192.168.4.1:80`  
+**Access Point Mode:** The Pico W AP defaults to ip address `192.168.4.1`. You should be able to find the webservice at `http://192.168.4.1:80`
+
+**Client Mode:** When connected to your home network, the Pico W will receive an IP address from your router. Check the serial output for the assigned IP address, or check your router's admin interface for connected devices.
 
 The following endpoints are available on the webservice:
 ```

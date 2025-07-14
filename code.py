@@ -25,17 +25,43 @@ def startWiFi():
     # Get wifi details and more from a secrets.py file
     try:
         from secrets import secrets
+        # Try to import new variables, fall back to defaults if not available
+        try:
+            from secrets import wifi_mode, home_network
+        except ImportError:
+            print("Using legacy secrets.py format - defaulting to AP mode")
+            wifi_mode = 'ap'
+            home_network = {'ssid': '', 'password': ''}
     except ImportError:
         print("WiFi secrets are kept in secrets.py, please add them there!")
         raise
 
-    print("Connect wifi")
-    #wifi.radio.connect(secrets['ssid'],secrets['password'])
-    wifi.radio.start_ap(secrets['ssid'],secrets['password'])
-
-    HOST = repr(wifi.radio.ipv4_address_ap)
+    print("WiFi mode:", wifi_mode)
+    
+    if wifi_mode == 'client':
+        print("Connecting to home network:", home_network['ssid'])
+        try:
+            wifi.radio.connect(home_network['ssid'], home_network['password'])
+            print("Connected to WiFi!")
+            print("IP address:", wifi.radio.ipv4_address)
+            HOST = repr(wifi.radio.ipv4_address)
+        except Exception as e:
+            print("Failed to connect to home network:", e)
+            print("Falling back to AP mode...")
+            wifi.radio.start_ap(secrets['ssid'], secrets['password'])
+            print("Access point started!")
+            print("AP IP address:", wifi.radio.ipv4_address_ap)
+            HOST = repr(wifi.radio.ipv4_address_ap)
+    else:
+        print("Starting access point:", secrets['ssid'])
+        wifi.radio.start_ap(secrets['ssid'], secrets['password'])
+        print("Access point started!")
+        print("AP IP address:", wifi.radio.ipv4_address_ap)
+        HOST = repr(wifi.radio.ipv4_address_ap)
+    
     PORT = 80        # Port to listen on
-    print(HOST,PORT)
+    print("Web interface available at: http://" + HOST.strip("'") + ":" + str(PORT))
+    print(HOST, PORT)
 
 # turn off automatically reloading when files are written to the pico
 #supervisor.disable_autoreload()

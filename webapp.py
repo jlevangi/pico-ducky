@@ -227,8 +227,17 @@ def run_script(request, filenumber):
     return("200 OK",[('Content-Type', 'text/html')], response)
 
 async def startWebService():
-
-    HOST = repr(wifi.radio.ipv4_address_ap)
+    try:
+        from secrets import wifi_mode
+    except ImportError:
+        wifi_mode = 'ap'  # Default to AP mode if not specified
+    
+    # Use appropriate IP address based on WiFi mode
+    if wifi_mode == 'client':
+        HOST = repr(wifi.radio.ipv4_address)  # Client mode: use assigned IP
+    else:
+        HOST = repr(wifi.radio.ipv4_address_ap)  # AP mode: use AP IP
+    
     PORT = 80        # Port to listen on
     print(HOST,PORT)
 

@@ -61,6 +61,18 @@ jobs:
         rm bundle.zip
         rm -rf adafruit-circuitpython-bundle-*
         
+    - name: Verify lib Directory
+      run: |
+        if [ ! -d "lib" ]; then
+          echo "Error: 'lib' directory is missing. Ensure the libraries are downloaded correctly."
+          exit 1
+        fi
+
+    - name: Debug lib Directory
+      run: |
+        echo "Contents of lib directory:"
+        ls -l lib
+        
     - name: Create release bundles
       run: |
         VERSION=${GITHUB_REF#refs/tags/}

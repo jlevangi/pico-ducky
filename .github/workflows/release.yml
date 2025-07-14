@@ -40,10 +40,21 @@ jobs:
         wget -O dist/adafruit-circuitpython-raspberry_pi_pico2_w-en_US-9.2.1.uf2 \
           "https://downloads.circuitpython.org/bin/raspberry_pi_pico2_w/en_US/adafruit-circuitpython-raspberry_pi_pico2_w-en_US-9.2.1.uf2"
         
+    - name: Fetch Latest CircuitPython Bundle URL
+      id: fetch-bundle-url
+      run: |
+        API_URL="https://api.github.com/repos/adafruit/Adafruit_CircuitPython_Bundle/releases/latest"
+        BUNDLE_URL=$(curl -s $API_URL | grep "browser_download_url" | grep "adafruit-circuitpython-bundle-9.x-mpy.zip" | cut -d '"' -f 4)
+        if [ -z "$BUNDLE_URL" ]; then
+          echo "Error: Failed to fetch the latest CircuitPython bundle URL."
+          exit 1
+        fi
+        echo "::set-output name=bundle_url::$BUNDLE_URL"
+
     - name: Download CircuitPython Libraries
       run: |
-        # Download the latest CircuitPython bundle
-        wget -O bundle.zip "https://github.com/adafruit/Adafruit_CircuitPython_Bundle/releases/latest/download/adafruit-circuitpython-bundle-9.x-mpy.zip" || {
+        # Use the dynamically fetched URL to download the latest CircuitPython bundle
+        wget -O bundle.zip "${{ steps.fetch-bundle-url.outputs.bundle_url }}" || {
           echo "Error: Failed to download CircuitPython bundle. Check the URL or network connection.";
           exit 1;
         }

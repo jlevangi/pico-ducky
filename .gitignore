@@ -1,2 +1,43 @@
+# WiFi credentials - never commit these!
 secrets.py
+
+# Test build outputs
 /test_dist
+
+# Python bytecode and cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyo
+*.pyd
+
+# Virtual environments
+venv/
+env/
+ENV/
+
+# IDE and editor files
+.vscode/settings.json
+.vscode/launch.json
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+
+# Temporary files
+*.tmp
+*.temp
+*.log
+*.bak
+
+# CircuitPython specific
+.fseventsd/
+.metadata_never_index
+.Trashes
